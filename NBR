@@ -31,10 +31,13 @@ search = client.search(
 )
 
 # Recuperar los items de la búsqueda
-items = search.get_all_items()
+items = list(search.get_all_items())
 
-# Seleccionar el primer item (puedes seleccionar otro si es necesario)
-item = items[0]
+# Seleccionar automáticamente el item con menos nubes
+item = min(
+    items,
+    key=lambda itm: itm.properties.get("eo:cloud_cover", float("inf")),
+)
 
 # Paso 3: Descargar el enlace de la imagen desde STAC
 assets = item.assets
