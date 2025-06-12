@@ -1,0 +1,92 @@
+# instalamos las librerías
+!pip install planetary-computer pystac-client rasterio geopandas matplotlib --quiet
+
+import planetary_computer as pc
+import pystac_client
+import rasterio
+from rasterio.plot import show
+from rasterio.enums import Resampling
+from shapely.geometry import box
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+# Paso 1: Definir el área de interés (ejemplo en el área de La Calera, Cundinamarca)
+
+bounding_box = [-74.10, 4.65, -73.95, 4.76]
+
+# Crear un polígono a partir de la bounding box
+area_of_interest = box(*bounding_box)
+gdf_aoi = gpd.GeoDataFrame({"geometry": [area_of_interest]}, crs="EPSG:4326")
+
+# Paso 2: Buscar imágenes de Sentinel-2 en el catálogo STAC
+stac_url = "https://planetarycomputer.microsoft.com/api/stac/v1"
+client = pystac_client.Client.open(stac_url)
+
+# Hacer la búsqueda para imágenes recientes de Sentinel-2
+search = client.search(
+    collections=["sentinel-2-l2a"],
+    bbox=bounding_box,
+    datetime="2025-01-01/2025-05-31",
+    query={"eo:cloud_cover": {"lt": 30}},  # Limitar nubes al 30%
+)
+
+# Recuperar los items de la búsqueda
+items = search.get_all_items()
+
+# Seleccionar el primer item (puedes seleccionar otro si es necesario)
+item = items[0]
+
+# Paso 3: Descargar el enlace de la imagen desde STAC
+assets = item.assets
+
+visual_href = pc.sign(assets["visual"].href)  # Imagen RGB visual para descargar
+
+# Paso 4: Leer la imagen descargada
+with rasterio.open(visual_href) as dataset:
+    # Mostrar la imagen
+    fig, ax = plt.subplots(figsize=(10, 10))
+    show(dataset, ax=ax)
+    plt.title("Imagen Sentinel-2 - Bogotá-La Calera")
+    plt.show()
+
+import numpy as np
+
+# Descargar las bandas infrarroja de onda corta (B12) y la infrarroja cercana (B8) para calcular NBR
+nir_href = pc.sign(assets["B08"].href)  # Banda NIR
+swir_href = pc.sign(assets["B12"].href)  # Banda SWIR
+
+# Abrir la banda SWIR (20 metros) desde la URL
+with rasterio.open(swir_href) as swir_dataset:
+    swir = swir_dataset.read(1).astype('float32')
+    swir_transform = swir_dataset.transform
+
+# Abrir la banda NIR (10 metros) desde la URL y remuestrearla a 20 metros
+
+with rasterio.open(nir_href) as nir_dataset:
+    nir = nir_dataset.read(1, out_shape=swir.shape, resampling=Resampling.bilinear).astype('float32')
+    nir_transform = nir_dataset.transform
+    ##nir_crs = nir_dataset.crs
+
+# Ahora ambas bandas tienen la misma forma (por ejemplo, 10980 x 10980)
+print(f"NIR shape: {nir.shape}, SWIR shape: {swir.shape}")
+
+# Calcular el NBR
+nbr = (nir - swir) / (nir + swir)
+
+# Umbral para áreas quemadas (NBR negativo indica áreas quemadas)
+threshold = -0.25
+burnt_area = np.where(nbr < threshold, 1, 0)
+
+# Calcular el área total afectada en píxeles
+pixel_size = 10  # Tamaño del píxel en metros para Sentinel-2
+total_burnt_area_m2 = burnt_area.sum() * (pixel_size ** 2)
+total_burnt_area_ha = total_burnt_area_m2 / 10_000  # Convertir a hectáreas
+
+print(f"Hectáreas afectadas: {total_burnt_area_ha:.2f}")
+
+# Mostrar la imagen del NBR utilizando la paleta 'inferno'
+plt.figure(figsize=(10, 10))
+plt.imshow(nbr, cmap='inferno')
+plt.colorbar(label="NBR (Índice de Quemado Normalizado)")
+plt.title("Mapa NBR con paleta Inferno")
+plt.show()
