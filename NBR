@@ -81,7 +81,9 @@ threshold = -0.25
 burnt_area = np.where(nbr < threshold, 1, 0)
 
 # Calcular el área total afectada en píxeles
-pixel_size = 10  # Tamaño del píxel en metros para Sentinel-2
+# Las bandas se remuestran a la resolución de 20 m de la banda SWIR,
+# por lo que el tamaño de píxel debe reflejar dicha resolución.
+pixel_size = 20  # Tamaño del píxel en metros para Sentinel-2
 total_burnt_area_m2 = burnt_area.sum() * (pixel_size ** 2)
 total_burnt_area_ha = total_burnt_area_m2 / 10_000  # Convertir a hectáreas
 
